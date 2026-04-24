@@ -1,7 +1,8 @@
-version: '3.8'
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: saas-app
     ports:
       - "3000:3000"
@@ -15,6 +16,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: saas-postgres
@@ -31,5 +33,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
 volumes:
   pgdata:
