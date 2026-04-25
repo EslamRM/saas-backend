@@ -40,14 +40,16 @@ RUN sh -c "ls -la dist/ || (echo 'ERROR: dist folder is completely missing!' && 
 # ============================================
 FROM node:20-slim AS production
 
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# NOTE: We do NOT set DATABASE_URL here. 
-# We want Railway/Docker-Compose to inject the real one at runtime.
+# Prisma can run in npm lifecycle scripts during image build.
+# Keep a dummy value so schema validation passes at build time.
+# Real runtime env from Railway/docker-compose overrides this safely.
+ENV DATABASE_URL="postgresql://user:pass@localhost:5432/dummy"
 
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
 
