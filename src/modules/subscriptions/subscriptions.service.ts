@@ -3,11 +3,17 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateSubscriptionDto } from "./dto/create-subscription.dto";
 import { SubscriptionResponseDto } from "./dto/subscription-response.dto";
 import { TenantContext } from "@/common/tenant-context";
 import { PaginationDto } from "../../common/dto/pagination.dto";
+
+type SubscriptionWithRelations = Prisma.SubscriptionGetPayload<{
+  include: { customer: true; plan: true };
+}>;
+
 @Injectable()
 export class SubscriptionsService {
   constructor(private prisma: PrismaService) {}
@@ -55,7 +61,7 @@ export class SubscriptionsService {
       },
     });
 
-    return this.toResponseDto(subscription);
+    return SubscriptionsService.toResponseDto(subscription);
   }
 
   async findAll(pagination: PaginationDto): Promise<SubscriptionResponseDto[]> {
@@ -68,10 +74,32 @@ export class SubscriptionsService {
       take: limit,
       orderBy: { createdAt: "desc" },
     });
-    return subscriptions.map(this.toResponseDto);
+    return subscriptions.map(SubscriptionsService.toResponseDto);
   }
 
-  private toResponseDto(subscription: any): SubscriptionResponseDto {
+  async cancel(id: string): Promise<SubscriptionResponseDto> {
+    try {
+      const subscription = await this.prisma.subscription.update({
+        where: { id },
+        data: { status: "CANCELLED" },
+        include: { customer: true, plan: true },
+      });
+
+      return SubscriptionsService.toResponseDto(subscription);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
+        throw new NotFoundException("Subscription not found for this tenant");
+      }
+      throw error;
+    }
+  }
+
+  private static toResponseDto(
+    subscription: SubscriptionWithRelations,
+  ): SubscriptionResponseDto {
     return {
       id: subscription.id,
       customerId: subscription.customerId,

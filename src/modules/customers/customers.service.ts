@@ -3,9 +3,9 @@ import {
   NotFoundException,
   ConflictException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client"; // FIX: Imported for strict typing
+import { Prisma, Customer } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
-import { TenantContext } from "../../common/tenant-context"; // FIX: Removed path alias
+import { TenantContext } from "../../common/tenant-context";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
 import { CustomerResponseDto } from "./dto/customer-response.dto";
@@ -21,7 +21,7 @@ export class CustomersService {
       const customer = await this.prisma.customer.create({
         data: { tenantId, name: dto.name, email: dto.email },
       });
-      return this.toResponseDto(customer);
+      return CustomersService.toResponseDto(customer);
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -44,14 +44,14 @@ export class CustomersService {
       take: limit,
       orderBy: { createdAt: "desc" },
     });
-    return customers.map(this.toResponseDto);
+    return customers.map(CustomersService.toResponseDto);
   }
 
   async findOne(id: string): Promise<CustomerResponseDto> {
     const customer = await this.prisma.customer.findUnique({ where: { id } });
     if (!customer)
       throw new NotFoundException("Customer not found for this tenant");
-    return this.toResponseDto(customer);
+    return CustomersService.toResponseDto(customer);
   }
 
   async update(
@@ -63,7 +63,7 @@ export class CustomersService {
         where: { id },
         data: dto,
       });
-      return this.toResponseDto(customer);
+      return CustomersService.toResponseDto(customer);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2025")
@@ -94,7 +94,7 @@ export class CustomersService {
     }
   }
 
-  private toResponseDto(customer: any): CustomerResponseDto {
+  private static toResponseDto(customer: Customer): CustomerResponseDto {
     return {
       id: customer.id,
       name: customer.name,

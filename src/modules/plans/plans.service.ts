@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { Prisma, Plan } from "@prisma/client";
 import { TenantContext } from "@/common/tenant-context";
 import { CreatePlanDto } from "./dto/create-plan.dto";
 import { UpdatePlanDto } from "./dto/update-plan.dto";
@@ -19,7 +20,7 @@ export class PlansService {
       take: limit,
       orderBy: { createdAt: "desc" },
     });
-    return plans.map(this.toResponseDto);
+    return plans.map(PlansService.toResponseDto);
   }
 
   async create(dto: CreatePlanDto): Promise<PlanResponseDto> {
@@ -34,7 +35,7 @@ export class PlansService {
       },
     });
 
-    return this.toResponseDto(plan);
+    return PlansService.toResponseDto(plan);
   }
 
   async findOne(id: string): Promise<PlanResponseDto> {
@@ -44,7 +45,7 @@ export class PlansService {
       throw new NotFoundException(`Plan not found for this tenant`);
     }
 
-    return this.toResponseDto(plan);
+    return PlansService.toResponseDto(plan);
   }
 
   async update(id: string, dto: UpdatePlanDto): Promise<PlanResponseDto> {
@@ -54,10 +55,12 @@ export class PlansService {
         data: dto,
       });
 
-      return this.toResponseDto(plan);
-    } catch (error: unknown) {
-      const prismaError = error as { code?: string };
-      if (prismaError.code === "P2025") {
+      return PlansService.toResponseDto(plan);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
         throw new NotFoundException(`Plan not found for this tenant`);
       }
       throw error;
@@ -72,16 +75,18 @@ export class PlansService {
       });
 
       return { success: true };
-    } catch (error: unknown) {
-      const prismaError = error as { code?: string };
-      if (prismaError.code === "P2025") {
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
         throw new NotFoundException(`Plan not found for this tenant`);
       }
       throw error;
     }
   }
 
-  private toResponseDto(plan: any): PlanResponseDto {
+  private static toResponseDto(plan: Plan): PlanResponseDto {
     return {
       id: plan.id,
       name: plan.name,

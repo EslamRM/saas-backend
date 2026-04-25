@@ -2,7 +2,10 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
+  Param,
+  ParseUUIDPipe,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -51,7 +54,19 @@ export class SubscriptionsController {
   async findAll(
     @Query() pagination: PaginationDto,
   ): Promise<SubscriptionResponseDto[]> {
-    // <-- ADDED @Query()
-    return this.subscriptionsService.findAll(pagination); // <-- ADDED pagination argument
+    return this.subscriptionsService.findAll(pagination);
+  }
+
+  @Patch(":id/cancel")
+  @ApiOperation({
+    summary: "Cancel a subscription",
+    description: "Marks an active subscription as CANCELLED.",
+  })
+  @ApiResponse({ status: 200, type: SubscriptionResponseDto })
+  @ApiResponse({ status: 404, description: "Subscription not found" })
+  async cancel(
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<SubscriptionResponseDto> {
+    return this.subscriptionsService.cancel(id);
   }
 }

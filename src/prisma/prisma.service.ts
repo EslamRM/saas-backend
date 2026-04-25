@@ -13,61 +13,63 @@ const tenantScopedModels = [
   "journalEntry",
 ];
 
-// FIXED: Proper mapping to ensure 'where' is ALWAYS injected for reads
-const generateModelExtension = () => ({
-  async $allOperations({ args, query, operation }: any) {
-    const tenantId = TenantContext.getTenantId();
-    if (!tenantId) return query(args);
+type ArgsRecord = Record<string, unknown>;
 
-    // Safely build the where clause (always include tenantId for reads)
-    const safeWhere = args.where ? { ...args.where, tenantId } : { tenantId };
+const readOperations = new Set<Prisma.PrismaAction>([
+  "findUnique",
+  "findUniqueOrThrow",
+  "findFirst",
+  "findFirstOrThrow",
+  "findMany",
+  "count",
+  "aggregate",
+  "groupBy",
+]);
 
-    // Safely build the data clause
-    let safeData = args.data;
-    if (args.data) {
-      safeData = Array.isArray(args.data)
-        ? args.data.map((d: any) => ({ ...d, tenantId }))
-        : { ...args.data, tenantId };
-    }
+const whereOnlyOperations = new Set<Prisma.PrismaAction>([
+  "update",
+  "updateMany",
+  "delete",
+  "deleteMany",
+]);
 
-    switch (operation) {
-      case "findUnique":
-      case "findFirst":
-      case "findMany":
-      case "count":
-      case "aggregate":
-      case "groupBy":
-        return query({ ...args, where: safeWhere });
-      case "create":
-        return query({ ...args, data: safeData });
-      case "update":
-      case "delete":
-        return query({ ...args, where: safeWhere });
-      case "updateMany":
-      case "deleteMany":
-        return query({ ...args, where: safeWhere });
-      case "upsert":
-        return query({
-          ...args,
-          where: safeWhere,
-          create: safeData,
-          update: args.update,
-        });
-      default:
-        return query(args);
-    }
-  },
-});
+const dataOnlyOperations = new Set<Prisma.PrismaAction>([
+  "create",
+  "createMany",
+]);
 
-const tenantQueryExtensions: any = {};
-tenantScopedModels.forEach((model) => {
-  tenantQueryExtensions[model] = generateModelExtension();
-});
+const whereAndDataOperations = new Set<Prisma.PrismaAction>(["upsert"]);
 
-const tenantExtension = Prisma.defineExtension({
-  name: "tenantIsolation",
-  query: tenantQueryExtensions,
-});
+const isObject = (value: unknown): value is ArgsRecord =>
+  typeof value === "object" && value !== null;
+
+const withTenantWhere = (args: ArgsRecord, tenantId: string): ArgsRecord => {
+  const currentWhere = isObject(args.where) ? args.where : {};
+  return { ...args, where: { ...currentWhere, tenantId } };
+};
+
+const withTenantData = (args: ArgsRecord, tenantId: string): ArgsRecord => {
+  const data = args.data;
+
+  if (!data) {
+    return args;
+  }
+
+  if (Array.isArray(data)) {
+    return {
+      ...args,
+      data: data.map((item) =>
+        isObject(item) ? { ...item, tenantId } : item,
+      ),
+    };
+  }
+
+  if (isObject(data)) {
+    return { ...args, data: { ...data, tenantId } };
+  }
+
+  return args;
+};
 
 @Injectable()
 export class PrismaService
@@ -85,7 +87,42 @@ export class PrismaService
 
   async onModuleInit() {
     await this.$connect();
-    return this.$extends(tenantExtension) as any;
+
+    this.$use(
+      async (
+        params: Prisma.MiddlewareParams,
+        next: (params: Prisma.MiddlewareParams) => Promise<unknown>,
+      ): Promise<unknown> => {
+        const tenantId = TenantContext.getTenantId();
+
+        if (!tenantId || !tenantScopedModels.includes(params.model ?? "")) {
+          return next(params);
+        }
+
+        const rawArgs = (params.args ?? {}) as ArgsRecord;
+        let nextArgs = rawArgs;
+
+        if (readOperations.has(params.action)) {
+          nextArgs = withTenantWhere(nextArgs, tenantId);
+        } else if (whereOnlyOperations.has(params.action)) {
+          nextArgs = withTenantWhere(nextArgs, tenantId);
+        } else if (dataOnlyOperations.has(params.action)) {
+          nextArgs = withTenantData(nextArgs, tenantId);
+        } else if (whereAndDataOperations.has(params.action)) {
+          const withWhere = withTenantWhere(nextArgs, tenantId);
+          const create = isObject(withWhere.create)
+            ? { ...withWhere.create, tenantId }
+            : withWhere.create;
+          const update = isObject(withWhere.update)
+            ? { ...withWhere.update, tenantId }
+            : withWhere.update;
+          nextArgs = { ...withWhere, create, update };
+        }
+
+        params.args = nextArgs;
+        return next(params);
+      },
+    );
   }
 
   async onModuleDestroy() {

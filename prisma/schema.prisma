@@ -26,13 +26,12 @@ journalEntries JournalEntry[]
 model User {
 id String @id @default(uuid())
 tenantId String
-email String
+email String @unique
 passwordHash String
 role Role @default(MEMBER)
 createdAt DateTime @default(now())
 updatedAt DateTime @updatedAt
 tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-@@unique([tenantId, email])
 @@index([tenantId])
 }
 

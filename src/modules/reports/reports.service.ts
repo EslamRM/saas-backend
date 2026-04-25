@@ -1,8 +1,9 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { TenantContext } from '@/common/tenant-context';
-import { BalanceSheetDto } from './dto/balance-sheet.dto';
-import { IncomeStatementDto } from './dto/income-statement.dto';
+import { Injectable, BadRequestException } from "@nestjs/common";
+import { Prisma, AccountType, JournalLineType } from "@prisma/client";
+import { PrismaService } from "../../prisma/prisma.service";
+import { TenantContext } from "@/common/tenant-context";
+import { BalanceSheetDto } from "./dto/balance-sheet.dto";
+import { IncomeStatementDto } from "./dto/income-statement.dto";
 
 /**
  * Financial reporting service.
@@ -19,6 +20,9 @@ import { IncomeStatementDto } from './dto/income-statement.dto';
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
+
+  private static readonly BALANCE_SHEET_CODES = ["1000", "1100", "2000"];
+  private static readonly SUBSCRIPTION_REVENUE_CODE = "4000";
 
   /**
    * Generates balance sheet showing assets and liabilities.
@@ -38,7 +42,7 @@ export class ReportsService {
       where: {
         journalEntry: { tenantId },
         account: {
-          code: { in: ['1000', '1100', '2000'] },
+          code: { in: ReportsService.BALANCE_SHEET_CODES },
         },
       },
       include: {
@@ -51,12 +55,12 @@ export class ReportsService {
     // Compute balances by account code
     const balances = this.computeBalances(lines);
 
-    const cash = this.round(balances['1000'] || 0);
-    const accountsReceivable = this.round(balances['1100'] || 0);
-    const deferredRevenue = this.round(balances['2000'] || 0);
+    const cash = this.round(balances["1000"] ?? 0);
+    const accountsReceivable = this.round(balances["1100"] ?? 0);
+    const deferredRevenue = this.round(balances["2000"] ?? 0);
 
     return {
-      asOf: new Date().toISOString().split('T')[0],
+      asOf: new Date().toISOString().split("T")[0],
       assets: {
         cash,
         accountsReceivable,
@@ -81,40 +85,99 @@ export class ReportsService {
   ): Promise<IncomeStatementDto> {
     if (isNaN(from.getTime()) || isNaN(to.getTime())) {
       throw new BadRequestException(
-        'Invalid date format. Use YYYY-MM-DD.',
+        "Invalid date format. Use YYYY-MM-DD.",
       );
+    }
+    if (from > to) {
+      throw new BadRequestException("'from' date must be before or equal to 'to'.");
     }
 
     const tenantId = TenantContext.requireTenantId();
 
-    // Get revenue journal lines within the period
-    const lines = await this.prisma.journalLine.findMany({
+    // Use invoice periodEnd (not journal createdAt) as the accounting period anchor.
+    const invoicesInPeriod = await this.prisma.invoice.findMany({
       where: {
-        journalEntry: {
-          tenantId,
-          createdAt: {
-            gte: from,
-            lte: to,
-          },
+        tenantId,
+        periodEnd: {
+          gte: from,
+          lte: to,
         },
-        account: {
-          type: 'REVENUE',
+      },
+      select: {
+        id: true,
+        periodEnd: true,
+      },
+    });
+
+    if (invoicesInPeriod.length === 0) {
+      return {
+        period: {
+          from: from.toISOString().split("T")[0],
+          to: to.toISOString().split("T")[0],
+        },
+        revenue: {
+          subscriptionRevenue: 0,
+        },
+        totalRevenue: 0,
+      };
+    }
+
+    const invoicesById = new Map<string, { id: string; periodEnd: Date }>(
+      invoicesInPeriod.map((invoice) => [invoice.id, invoice]),
+    );
+    const invoiceIds = invoicesInPeriod.map((invoice) => invoice.id);
+
+    const journalEntries = await this.prisma.journalEntry.findMany({
+      where: {
+        tenantId,
+        referenceType: "REVENUE_RECOGNITION",
+        referenceId: {
+          in: invoiceIds,
         },
       },
       include: {
-        account: {
-          select: { code: true, type: true },
+        lines: {
+          include: {
+            account: {
+              select: {
+                code: true,
+                type: true,
+              },
+            },
+          },
         },
       },
     });
 
+    const lines: ComputedBalanceLine[] = journalEntries.flatMap((entry) => {
+      const referenceId = entry.referenceId;
+      if (!referenceId) {
+        return [];
+      }
+      const invoice = invoicesById.get(referenceId);
+      if (!invoice) {
+        return [];
+      }
+
+      return entry.lines.map((line) => ({
+        account: {
+          code: line.account.code,
+          type: line.account.type,
+        },
+        type: line.type,
+        amount: line.amount,
+      }));
+    });
+
     const balances = this.computeBalances(lines);
-    const subscriptionRevenue = this.round(balances['4000'] || 0);
+    const subscriptionRevenue = this.round(
+      balances[ReportsService.SUBSCRIPTION_REVENUE_CODE] ?? 0,
+    );
 
     return {
       period: {
-        from: from.toISOString().split('T')[0],
-        to: to.toISOString().split('T')[0],
+        from: from.toISOString().split("T")[0],
+        to: to.toISOString().split("T")[0],
       },
       revenue: {
         subscriptionRevenue,
@@ -128,29 +191,25 @@ export class ReportsService {
    * Applies normal balance rules based on account type.
    */
   private computeBalances(
-    lines: Array<{
-      account: { code: string; type: string };
-      type: string;
-      amount: any;
-    }>,
+    lines: ComputedBalanceLine[],
   ): Record<string, number> {
     const balances: Record<string, number> = {};
 
     for (const line of lines) {
       const { code, type: accountType } = line.account;
-      if (!balances[code]) {
+      if (!(code in balances)) {
         balances[code] = 0;
       }
 
       const amount = Number(line.amount);
 
       // Apply normal balance rules
-      if (accountType === 'ASSET' || accountType === 'EXPENSE') {
+      if (accountType === "ASSET" || accountType === "EXPENSE") {
         // Normal balance is DEBIT
-        balances[code] += line.type === 'DEBIT' ? amount : -amount;
+        balances[code] += line.type === "DEBIT" ? amount : -amount;
       } else {
         // LIABILITY, REVENUE - Normal balance is CREDIT
-        balances[code] += line.type === 'CREDIT' ? amount : -amount;
+        balances[code] += line.type === "CREDIT" ? amount : -amount;
       }
     }
 
@@ -163,4 +222,13 @@ export class ReportsService {
   private round(value: number): number {
     return Math.round(value * 100) / 100;
   }
+}
+
+interface ComputedBalanceLine {
+  account: {
+    code: string;
+    type: AccountType;
+  };
+  type: JournalLineType;
+  amount: Prisma.Decimal;
 }

@@ -3,11 +3,18 @@ import {
   BadRequestException,
   NotFoundException,
 } from "@nestjs/common";
+import { Payment } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AccountingService } from "../accounting/accounting.service";
 import { CreatePaymentDto } from "./dto/create-payment.dto";
 import { PaymentResponseDto } from "./dto/payment-response.dto";
-import { TenantContext } from "../../common/tenant-context"; // FIX: Removed path alias
+import { TenantContext } from "../../common/tenant-context";
+
+type TransactionClient = Omit<
+  PrismaService,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
 
 @Injectable()
 export class PaymentsService {
@@ -19,19 +26,19 @@ export class PaymentsService {
   async createPayment(dto: CreatePaymentDto): Promise<PaymentResponseDto> {
     const tenantId = TenantContext.requireTenantId();
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: TransactionClient) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: dto.invoiceId, tenantId },
       });
 
-      // FIX: Removed duplicate checks that were in your pasted code
       if (!invoice)
         throw new NotFoundException("Invoice not found for this tenant");
       if (invoice.status === "PAID")
         throw new BadRequestException("Invoice already paid");
 
-      // FIX: Use String comparison to avoid JS floating point math bugs
-      if (String(invoice.amount) !== String(dto.amount)) {
+      const invoiceAmount = new Decimal(invoice.amount);
+      const paymentAmount = new Decimal(dto.amount);
+      if (!invoiceAmount.equals(paymentAmount)) {
         throw new BadRequestException(
           `Payment amount (${dto.amount}) does not match invoice amount (${invoice.amount})`,
         );
@@ -57,14 +64,14 @@ export class PaymentsService {
             { accountCode: "1100", type: "CREDIT", amount: dto.amount },
           ],
         },
-        tx as any,
+        tx,
       );
 
-      return this.toResponseDto(payment);
+      return PaymentsService.toResponseDto(payment);
     });
   }
 
-  private toResponseDto(payment: any): PaymentResponseDto {
+  private static toResponseDto(payment: Payment): PaymentResponseDto {
     return {
       id: payment.id,
       invoiceId: payment.invoiceId,
