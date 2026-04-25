@@ -81,7 +81,9 @@ This sequence ensures revenue is recognized only when earned, not when cash is b
 
 Base URL:
 - Local: `http://localhost:3000/api`
+- Live Demo: `https://saas-subscription.up.railway.app/api`
 - Swagger: `http://localhost:3000/api/docs`
+- Live Swagger: `https://saas-subscription.up.railway.app/api/docs`
 
 Main routes:
 - `POST /auth/register-tenant`
@@ -96,6 +98,32 @@ Main routes:
 - `POST /accounting/recognize-revenue`
 - `GET /reports/balance-sheet`
 - `GET /reports/income-statement?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+## Postman Collection
+
+A ready-to-use Postman collection is included at:
+- `docs/collection.json`
+
+### How to use
+
+1. Import `docs/collection.json` into Postman.
+2. Create an environment with:
+   - `baseUrl` = `http://localhost:3000/api` (local) or `https://saas-subscription.up.railway.app/api` (live)
+   - `token` = JWT from `/auth/register-tenant` or `/auth/login`
+   - `internalApiKey` = value of `INTERNAL_API_KEY` (required for billing endpoint)
+3. Run requests in this order:
+   - Auth (register/login)
+   - Plans
+   - Customers
+   - Subscriptions
+   - Billing
+   - Payments
+   - Accounting
+   - Reports
+
+### Collection validation note
+
+This confirms end-to-end API behavior in addition to automated unit/integration tests.
 
 ## Running Locally
 
