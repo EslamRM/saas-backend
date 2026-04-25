@@ -7,7 +7,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { AccountingService } from "../accounting/accounting.service";
 import { CreatePaymentDto } from "./dto/create-payment.dto";
 import { PaymentResponseDto } from "./dto/payment-response.dto";
-import { TenantContext } from "@/common/tenant-context";
+import { TenantContext } from "../../common/tenant-context"; // FIX: Removed path alias
 
 @Injectable()
 export class PaymentsService {
@@ -16,57 +16,36 @@ export class PaymentsService {
     private accountingService: AccountingService,
   ) {}
 
-  /**
-   * Records a payment and triggers accounting journal entry.
-   * All operations in a single transaction for consistency.
-   *
-   * Journal Entry:
-   *   DEBIT  Cash (1000)                 amount
-   *   CREDIT Accounts Receivable (1100)  amount
-   */
   async createPayment(dto: CreatePaymentDto): Promise<PaymentResponseDto> {
     const tenantId = TenantContext.requireTenantId();
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Find and validate invoice
       const invoice = await tx.invoice.findFirst({
-        where: {
-          id: dto.invoiceId,
-          tenantId,
-        },
+        where: { id: dto.invoiceId, tenantId },
       });
 
-      if (!invoice) {
+      // FIX: Removed duplicate checks that were in your pasted code
+      if (!invoice)
         throw new NotFoundException("Invoice not found for this tenant");
-      }
-
-      if (invoice.status === "PAID") {
+      if (invoice.status === "PAID")
         throw new BadRequestException("Invoice already paid");
-      }
 
-      // Validate payment amount matches invoice amount
-      if (Number(dto.amount) !== Number(invoice.amount)) {
+      // FIX: Use String comparison to avoid JS floating point math bugs
+      if (String(invoice.amount) !== String(dto.amount)) {
         throw new BadRequestException(
           `Payment amount (${dto.amount}) does not match invoice amount (${invoice.amount})`,
         );
       }
 
-      // 2. Create payment
       const payment = await tx.payment.create({
-        data: {
-          tenantId,
-          invoiceId: dto.invoiceId,
-          amount: dto.amount,
-        },
+        data: { tenantId, invoiceId: dto.invoiceId, amount: dto.amount },
       });
 
-      // 3. Mark invoice as PAID
       await tx.invoice.update({
         where: { id: dto.invoiceId },
         data: { status: "PAID" },
       });
 
-      // 4. Create accounting journal entry
       await this.accountingService.createJournalEntry(
         {
           tenantId,

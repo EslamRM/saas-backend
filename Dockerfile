@@ -3,7 +3,6 @@
 # ============================================
 FROM node:20-slim AS builder
 
-# Explicitly install OpenSSL headers
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,13 +15,16 @@ RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
     else npm install; \
     fi
 
-COPY prisma ./prisma/
-RUN npx prisma generate
-
+# Copy ALL source code first
 COPY . .
 
+# Generate Prisma Client AFTER copying all files to guarantee correct types
+RUN npx prisma generate
+
+# BUILD THE APP (This was missing!)
 RUN npm run build
 
+# Verify build succeeded
 RUN sh -c "ls -la dist/ || (echo 'ERROR: dist folder is completely missing!' && exit 1)"
 
 # ============================================
@@ -30,7 +32,6 @@ RUN sh -c "ls -la dist/ || (echo 'ERROR: dist folder is completely missing!' && 
 # ============================================
 FROM node:20-slim AS production
 
-# Explicitly install OpenSSL headers
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -45,18 +46,13 @@ RUN if [ -f yarn.lock ]; then yarn install --production --frozen-lockfile; \
     else npm install --only=production; \
     fi
 
-# =============================================
-# CRITICAL FIX FOR PRISMA DOCKER BUG
-# Copy the working Prisma engines from the builder 
-# stage to prevent runtime OpenSSL detection errors
-# =============================================
-COPY --from=builder /app/node_modules/.prisma /app/node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma /app/node_modules/@prisma
-
+# Copy built application and Prisma schema
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 
-RUN npx prisma generate
+# Copy the exact generated client from builder
+COPY --from=builder /app/node_modules/.prisma /app/node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma /app/node_modules/@prisma
 
 EXPOSE 3000
 

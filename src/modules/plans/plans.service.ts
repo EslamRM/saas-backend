@@ -4,10 +4,23 @@ import { TenantContext } from "@/common/tenant-context";
 import { CreatePlanDto } from "./dto/create-plan.dto";
 import { UpdatePlanDto } from "./dto/update-plan.dto";
 import { PlanResponseDto } from "./dto/plan-response.dto";
+import { PaginationDto } from "../../common/dto/pagination.dto";
 
 @Injectable()
 export class PlansService {
   constructor(private prisma: PrismaService) {}
+
+  async findAll(pagination: PaginationDto): Promise<PlanResponseDto[]> {
+    const page = pagination.page || 1;
+    const limit = pagination.limit || 20;
+
+    const plans = await this.prisma.plan.findMany({
+      skip: (page - 1) * limit,
+      take: limit,
+      orderBy: { createdAt: "desc" },
+    });
+    return plans.map(this.toResponseDto);
+  }
 
   async create(dto: CreatePlanDto): Promise<PlanResponseDto> {
     const tenantId = TenantContext.requireTenantId();
@@ -22,14 +35,6 @@ export class PlansService {
     });
 
     return this.toResponseDto(plan);
-  }
-
-  async findAll(): Promise<PlanResponseDto[]> {
-    const plans = await this.prisma.plan.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-
-    return plans.map(this.toResponseDto);
   }
 
   async findOne(id: string): Promise<PlanResponseDto> {

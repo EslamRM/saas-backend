@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateSubscriptionDto } from './dto/create-subscription.dto';
-import { SubscriptionResponseDto } from './dto/subscription-response.dto';
-import { TenantContext } from '@/common/tenant-context';
-
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { CreateSubscriptionDto } from "./dto/create-subscription.dto";
+import { SubscriptionResponseDto } from "./dto/subscription-response.dto";
+import { TenantContext } from "@/common/tenant-context";
+import { PaginationDto } from "../../common/dto/pagination.dto";
 @Injectable()
 export class SubscriptionsService {
   constructor(private prisma: PrismaService) {}
@@ -21,9 +25,7 @@ export class SubscriptionsService {
     });
 
     if (!plan) {
-      throw new BadRequestException(
-        'Active plan not found for this tenant',
-      );
+      throw new BadRequestException("Active plan not found for this tenant");
     }
 
     // Verify customer exists
@@ -35,9 +37,7 @@ export class SubscriptionsService {
     });
 
     if (!customer) {
-      throw new BadRequestException(
-        'Customer not found for this tenant',
-      );
+      throw new BadRequestException("Customer not found for this tenant");
     }
 
     const subscription = await this.prisma.subscription.create({
@@ -45,7 +45,7 @@ export class SubscriptionsService {
         tenantId,
         customerId: dto.customerId,
         planId: dto.planId,
-        status: 'ACTIVE',
+        status: "ACTIVE",
         startDate: new Date(dto.startDate),
         nextBillingDate: new Date(dto.startDate),
       },
@@ -58,15 +58,16 @@ export class SubscriptionsService {
     return this.toResponseDto(subscription);
   }
 
-  async findAll(): Promise<SubscriptionResponseDto[]> {
-    const subscriptions = await this.prisma.subscription.findMany({
-      include: {
-        customer: true,
-        plan: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(pagination: PaginationDto): Promise<SubscriptionResponseDto[]> {
+    const page = pagination.page || 1;
+    const limit = pagination.limit || 20;
 
+    const subscriptions = await this.prisma.subscription.findMany({
+      include: { customer: true, plan: true },
+      skip: (page - 1) * limit,
+      take: limit,
+      orderBy: { createdAt: "desc" },
+    });
     return subscriptions.map(this.toResponseDto);
   }
 

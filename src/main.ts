@@ -6,52 +6,49 @@ import { GlobalExceptionFilter } from "./common/filters/global-exception.filter"
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor";
 
 async function bootstrap() {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.JWT_SECRET === "fallback-secret-change-me"
+  ) {
+    throw new Error(
+      "FATAL ERROR: JWT_SECRET must be changed from the fallback value in production.",
+    );
+  }
+
   const app = await NestFactory.create(AppModule);
 
-  // Global prefix
   app.setGlobalPrefix("api");
 
-  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
-  // Global exception filter
   app.useGlobalFilters(new GlobalExceptionFilter());
-
-  // Global logging interceptor
   app.useGlobalInterceptors(new LoggingInterceptor());
+  app.enableCors({ origin: true, credentials: true });
 
-  // CORS
-  app.enableCors({
-    origin: true,
-    credentials: true,
-  });
-
-  // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle(process.env.SWAGGER_TITLE || "SaaS Subscription Management API")
     .setDescription(
-      process.env.SWAGGER_DESCRIPTION ||
-        "Production-grade subscription billing and accounting backend with multi-tenant architecture",
+      process.env.SWAGGER_DESCRIPTION || "Production-grade backend",
     )
     .setVersion(process.env.SWAGGER_VERSION || "1.0.0")
     .addBearerAuth()
-    .addTag("Auth", "Authentication and tenant registration")
-    .addTag("Plans", "Subscription plan management")
-    .addTag("Customers", "Customer management")
-    .addTag("Subscriptions", "Subscription lifecycle")
-    .addTag("Payments", "Payment processing")
-    .addTag("Billing", "Automated billing engine")
-    .addTag("Accounting", "Double-entry bookkeeping")
-    .addTag("Reports", "Financial reporting")
+    .addApiKey({ type: "apiKey", name: "x-api-key", in: "header" }, "api-key")
+    .addTag("Auth")
+    .addTag("Plans")
+    .addTag("Customers")
+    .addTag("Subscriptions")
+    .addTag("Invoices")
+    .addTag("Payments")
+    .addTag("Billing")
+    .addTag("Accounting")
+    .addTag("Reports")
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
@@ -63,17 +60,11 @@ async function bootstrap() {
     },
   });
 
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const port = process.env.PORT || 3000;
   await app.listen(port);
-
-  console.log(`
-  ╔══════════════════════════════════════════════════════════╗
-  ║  SaaS Subscription Management Backend                    ║
-  ║  Environment: ${process.env.NODE_ENV || "development"}${" ".repeat(37 - (process.env.NODE_ENV || "development").length)}║
-  ║  Port: ${port}${" ".repeat(50 - String(port).length)}║
-  ║  Docs: http://localhost:${port}/api/docs${" ".repeat(29 - String(port).length)}║
-  ╚══════════════════════════════════════════════════════════╝
-  `);
+  console.log(
+    `\n  🚀 SaaS Backend running on http://localhost:${port}/api/docs\n`,
+  );
 }
 
 bootstrap();

@@ -6,6 +6,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Query,
 } from "@nestjs/common";
 import {
   ApiTags,
@@ -20,6 +21,7 @@ import { UseInterceptors } from "@nestjs/common";
 import { SubscriptionsService } from "./subscriptions.service";
 import { CreateSubscriptionDto } from "./dto/create-subscription.dto";
 import { SubscriptionResponseDto } from "./dto/subscription-response.dto";
+import { PaginationDto } from "../../common/dto/pagination.dto";
 
 @ApiTags("Subscriptions")
 @ApiBearerAuth()
@@ -46,7 +48,10 @@ export class SubscriptionsController {
   @Get()
   @ApiOperation({ summary: "List all subscriptions" })
   @ApiResponse({ status: 200, type: [SubscriptionResponseDto] })
-  async findAll(): Promise<SubscriptionResponseDto[]> {
-    return this.subscriptionsService.findAll();
+  async findAll(
+    @Query() pagination: PaginationDto,
+  ): Promise<SubscriptionResponseDto[]> {
+    // <-- ADDED @Query()
+    return this.subscriptionsService.findAll(pagination); // <-- ADDED pagination argument
   }
 }
